@@ -1,0 +1,16 @@
+{
+    "temp_sensors": {
+        "temp1": {
+            "ADS1115": {
+                "gain": "Sixteen",
+                "v2temp": "(1.0 / 2.0594) * ((v * 29800.0) / (3.3 - v) - 942.5176)"
+            }
+        },
+        "temp2": {
+            "Dummy": {}
+        }
+    },
+    "alarms": {
+        "alarm1": "(temp1 + temp2) / 2 >= 100.0"
+    }
+}
