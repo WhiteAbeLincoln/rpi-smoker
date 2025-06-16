@@ -1,9 +1,0 @@
-.FlowEditor .dndnodelist {
-    list-style-type: none;
-    gap: 2rem;
-    display: flex;
-    flex-direction: column;
-}
-.FlowEditor .dndnode {
-    position: relative;
-}
