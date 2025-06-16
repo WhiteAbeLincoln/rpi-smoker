@@ -6,7 +6,7 @@ Establish the foundational infrastructure for the RPI Smoker project, including 
 
 ## Tasks Breakdown
 
-### Task 1.1.1: Create Cargo Workspace with Backend Crate
+### ✅ Task 1.1.1: Create Cargo Workspace with Backend Crate
 
 **Priority**: High | **Story Points**: 3 | **Dependencies**: None
 
