@@ -2,8 +2,8 @@
 async fn test_basic_functionality() {
     // Basic test to ensure the crate compiles and basic functionality works
     let config = rpi_smoker_backend::config::AppConfig::default();
-    assert_eq!(config.server.port, 3000);
-    assert_eq!(config.server.host, "0.0.0.0");
+    assert_eq!(config.port, 3000);
+    assert_eq!(config.host, "0.0.0.0");
 }
 
 #[tokio::test]

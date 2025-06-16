@@ -73,13 +73,13 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg),
             AppError::Config(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Configuration error: {}", msg),
+                format!("Configuration error: {msg}"),
             ),
             AppError::Io(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("IO error: {}", err),
+                format!("IO error: {err}"),
             ),
-            AppError::Json(err) => (StatusCode::BAD_REQUEST, format!("JSON error: {}", err)),
+            AppError::Json(err) => (StatusCode::BAD_REQUEST, format!("JSON error: {err}")),
             #[cfg(all(feature = "rpi-hardware", target_os = "linux"))]
             AppError::Hardware(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

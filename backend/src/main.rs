@@ -1,12 +1,10 @@
-use axum::{
-    response::Json,
-    routing::get,
-    Router,
-};
 use clap::Parser;
-use serde_json::{json, Value};
+use rpi_smoker_backend::{
+    api::create_router,
+    config::{AppConfig, HardwareConfig},
+};
 use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
+use tokio::signal;
 use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
@@ -20,32 +18,26 @@ struct Args {
     #[arg(long, default_value = "0.0.0.0")]
     host: String,
 
+    /// Request timeout in seconds
+    #[arg(long, default_value = "30")]
+    timeout: u64,
+
     /// Enable hardware features (GPIO, sensors)
     #[arg(long)]
     enable_hardware: bool,
 }
 
-async fn health_check() -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "service": "rpi-smoker-backend",
-        "version": env!("CARGO_PKG_VERSION"),
-        "hardware_enabled": cfg!(feature = "rpi-hardware")
-    }))
-}
-
-async fn hello_world() -> Json<Value> {
-    Json(json!({
-        "message": "Hello from RPI Smoker Backend!",
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    }))
-}
-
-fn create_app() -> Router {
-    Router::new()
-        .route("/", get(hello_world))
-        .route("/health", get(health_check))
-        .layer(CorsLayer::permissive())
+fn create_app_config(args: &Args) -> AppConfig {
+    AppConfig {
+        port: args.port,
+        host: args.host.clone(),
+        request_timeout_seconds: args.timeout,
+        hardware: HardwareConfig {
+            enable_gpio: args.enable_hardware,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
 }
 
 #[tokio::main]
@@ -59,9 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    let config = create_app_config(&args);
 
     // Check if we're on a Raspberry Pi or hardware features are enabled
-    if args.enable_hardware {
+    if config.hardware.enable_gpio {
         #[cfg(all(feature = "rpi-hardware", target_os = "linux"))]
         {
             info!("Hardware features enabled");
@@ -76,14 +69,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Running in development mode without hardware features");
     }
 
-    let app = create_app();
+    let app = create_router(&config);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], args.port));
-    info!("Starting server on {}:{}", args.host, args.port);
-    info!("Health check available at http://{}:{}/health", args.host, args.port);
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    info!("Starting server on {}:{}", config.host, config.port);
+    info!(
+        "Health check available at http://{}:{}/api/health",
+        config.host, config.port
+    );
+    info!("API routes available under /api/*");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+
+    // Run server with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
+}
+
+/// Handle graceful shutdown signals
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Received Ctrl+C, starting graceful shutdown");
+        },
+        _ = terminate => {
+            info!("Received SIGTERM, starting graceful shutdown");
+        },
+    }
 }

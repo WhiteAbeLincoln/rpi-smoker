@@ -2,17 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    pub server: ServerConfig,
+    pub port: u16,
+    pub host: String,
+    pub cors_origins: Vec<String>,
+    pub request_timeout_seconds: u64,
     pub hardware: HardwareConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HardwareConfig {
     pub enable_gpio: bool,
     pub temperature_sensor_pin: Option<u8>,
@@ -22,15 +19,11 @@ pub struct HardwareConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            server: ServerConfig {
-                host: "0.0.0.0".to_string(),
-                port: 3000,
-            },
-            hardware: HardwareConfig {
-                enable_gpio: false,
-                temperature_sensor_pin: None,
-                fan_control_pin: None,
-            },
+            port: 3000,
+            host: "0.0.0.0".to_string(),
+            cors_origins: vec!["*".to_string()],
+            request_timeout_seconds: 30,
+            hardware: HardwareConfig::default(),
         }
     }
 }
