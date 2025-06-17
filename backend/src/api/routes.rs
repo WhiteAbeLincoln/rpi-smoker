@@ -1,8 +1,7 @@
 use axum::{
-    middleware,
+    Router, middleware,
     response::IntoResponse,
     routing::{get, post, put},
-    Router,
 };
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -41,7 +40,7 @@ pub fn create_router(config: &AppConfig) -> Router {
             .layer(CorsLayer::permissive())
             .layer(CompressionLayer::new())
             .layer(TimeoutLayer::new(Duration::from_secs(
-                config.request_timeout_seconds,
+                config.server.request_timeout_seconds,
             )))
             .layer(middleware::from_fn(error_handler)),
     )

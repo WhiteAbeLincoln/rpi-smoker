@@ -2,8 +2,8 @@
 async fn test_basic_functionality() {
     // Basic test to ensure the crate compiles and basic functionality works
     let config = rpi_smoker_backend::config::AppConfig::default();
-    assert_eq!(config.port, 3000);
-    assert_eq!(config.host, "0.0.0.0");
+    assert_eq!(config.server.port, 3000);
+    assert_eq!(config.server.host, "0.0.0.0");
 }
 
 #[tokio::test]
@@ -20,16 +20,32 @@ async fn test_error_convenience_constructors() {
 
     // Test convenience constructors
     let bad_request = AppError::bad_request("Invalid input");
-    assert!(bad_request.to_string().contains("Bad request: Invalid input"));
+    assert!(
+        bad_request
+            .to_string()
+            .contains("Bad request: Invalid input")
+    );
 
     let not_found = AppError::not_found("Resource not found");
-    assert!(not_found.to_string().contains("Not found: Resource not found"));
+    assert!(
+        not_found
+            .to_string()
+            .contains("Not found: Resource not found")
+    );
 
     let validation = AppError::validation("Invalid format");
-    assert!(validation.to_string().contains("Validation error: Invalid format"));
+    assert!(
+        validation
+            .to_string()
+            .contains("Validation error: Invalid format")
+    );
 
     let config = AppError::config("Missing required setting");
-    assert!(config.to_string().contains("Configuration error: Missing required setting"));
+    assert!(
+        config
+            .to_string()
+            .contains("Configuration error: Missing required setting")
+    );
 }
 
 #[tokio::test]
@@ -43,7 +59,8 @@ async fn test_error_from_implementations() {
     assert!(app_error.to_string().contains("IO error"));
 
     // Test automatic conversion from serde_json::Error
-    let json_result: Result<serde_json::Value, serde_json::Error> = serde_json::from_str("invalid json");
+    let json_result: Result<serde_json::Value, serde_json::Error> =
+        serde_json::from_str("invalid json");
     if let Err(json_error) = json_result {
         let app_error: AppError = json_error.into();
         assert!(app_error.to_string().contains("JSON serialization error"));

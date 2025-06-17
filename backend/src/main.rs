@@ -1,7 +1,7 @@
 use clap::Parser;
 use rpi_smoker_backend::{
     api::create_router,
-    config::{AppConfig, HardwareConfig},
+    config::{AppConfig, HardwareConfig, ServerConfig},
 };
 use std::net::SocketAddr;
 use tokio::signal;
@@ -29,14 +29,16 @@ struct Args {
 
 fn create_app_config(args: &Args) -> AppConfig {
     AppConfig {
-        port: args.port,
-        host: args.host.clone(),
-        request_timeout_seconds: args.timeout,
+        server: ServerConfig {
+            port: args.port,
+            host: args.host.clone(),
+            request_timeout_seconds: args.timeout,
+            ..Default::default()
+        },
         hardware: HardwareConfig {
             enable_gpio: args.enable_hardware,
             ..Default::default()
         },
-        ..Default::default()
     }
 }
 
@@ -62,7 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(not(all(feature = "rpi-hardware", target_os = "linux")))]
         {
-            warn!("Hardware features requested but not available on this platform or not compiled in.");
+            warn!(
+                "Hardware features requested but not available on this platform or not compiled in."
+            );
             warn!("To enable hardware features: use --features rpi-hardware on Linux");
         }
     } else {
@@ -71,11 +75,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = create_router(&config);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    info!("Starting server on {}:{}", config.host, config.port);
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
+    info!(
+        "Starting server on {}:{}",
+        config.server.host, config.server.port
+    );
     info!(
         "Health check available at http://{}:{}/api/health",
-        config.host, config.port
+        config.server.host, config.server.port
     );
     info!("API routes available under /api/*");
 
