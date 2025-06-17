@@ -22,12 +22,13 @@ Create a configuration management system that can load smoker settings from JSON
 
 ## Acceptance Criteria
 
-- [ ] Configuration loaded from `config/default.json` on startup
-- [ ] Environment-specific config override support (e.g., `config/development.json`)
-- [ ] CLI argument support for config file path override
+- [ ] On startup, onfiguration loaded from the config file path provided
+      by the CLI argument, or `config.json` in the current working directory
+- [ ] CLI argument support for overriding ServerConfig fields
 - [ ] Configuration validation with detailed error messages
-- [ ] Runtime configuration updates (partial updates supported)
-- [ ] Configuration backup and restore functionality
+- [ ] API for runtime configuration updates (partial updates supported)
+- [ ] When config is changed through API, back up previous config in a `config_backup` directory
+- [ ] API for configuration restore functionality
 - [ ] Proper error handling for missing/invalid config files
 - [ ] Unit tests for configuration loading and validation
 
@@ -37,7 +38,7 @@ Create a configuration management system that can load smoker settings from JSON
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfiguration {
+pub struct AppConfig {
     pub server: ServerConfig,
     pub hardware: HardwareConfig,
     pub temp_sensors: HashMap<String, TempSensorConfig>,
@@ -52,21 +53,90 @@ pub struct ServerConfig {
     pub port: u16,
     pub cors_origins: Vec<String>,
     pub request_timeout_seconds: u64,
+    /// the backup directory for configuration
+    pub config_backup_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareConfig {
-    pub i2c_bus: u8,
-    pub ads1115_address: String,
+    pub ads1115: ADS1115Config,
     pub mock_mode: bool,  // For development/testing
+}
+
+// TODO: convert to FullScaleRange from ads1x1x
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy)]
+pub enum ADSGain {
+    /// The measurable range is ±6.144V.
+    TwoThirds,
+    /// The measurable range is ±4.096V.
+    One,
+    /// The measurable range is ±2.048V. (default)
+    #[default]
+    Two,
+    /// The measurable range is ±1.024V.
+    Four,
+    /// The measurable range is ±0.512V.
+    Eight,
+    /// The measurable range is ±0.256V.
+    Sixteen,
+}
+
+impl ADSGain {
+    fn to_volts(self) -> f64 {
+        match self {
+            ADSGain::TwoThirds => 6.144,
+            ADSGain::One => 4.096,
+            ADSGain::Two => 2.048,
+            ADSGain::Four => 1.024,
+            ADSGain::Eight => 0.512,
+            ADSGain::Sixteen => 0.256,
+        }
+    }
+}
+
+use serde_repr::*;
+#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Default)]
+#[repr(u8)]
+pub enum ADSChannel {
+    #[default]
+    A0 = 0,
+    A1 = 1,
+    A2 = 2,
+    A3 = 3,
+}
+
+// TODO: convert to DataRate16Bit from ads1x1x
+#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Default)]
+#[repr(u16)]
+pub enum ADSDataRate {
+    Rate8SPS = 8,
+    Rate16SPS = 16,
+    Rate32SPS = 32,
+    Rate64SPS = 64,
+    #[default]
+    Rate128SPS = 128,
+    Rate250SPS = 250,
+    Rate475SPS = 475,
+    Rate860SPS = 860,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ADS1115Config {
+    /// the i2c bus that the ADS1115 is connected to
+    pub i2c_bus: Option<u8>,
+    /// optional address
+    pub address: Option<u16>,
+    pub gain: ADSGain,
+    pub data_rate: ADSDataRate,
+    pub poll_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TempSensorConfig {
-    pub ads1115_channel: u8,
-    pub gain: f64,
-    pub poll_interval_ms: u64,
+    pub ads_channel: ADSChannel,
+    /// conversion from volts to degrees celsius
     pub conversion_formula: String,
+    // not deserialized, this is the name in the hashmap for easy reference
     pub name: String,
 }
 
@@ -75,6 +145,7 @@ pub struct FanConfig {
     pub pwm_pin: u8,
     pub frequency_hz: u32,
     pub duty_cycle_formulas: Vec<ConditionalFormula>,
+    // not deserialized, this is the name in the hashmap for easy reference
     pub name: String,
 }
 
@@ -86,6 +157,8 @@ pub struct ConditionalFormula {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlarmConfig {
+    // not deserialized, this is the name in the hashmap for easy reference
+    pub name: String,
     pub condition: String,
     pub message: String,
     pub actions: Vec<String>,
@@ -101,17 +174,11 @@ pub struct DataRetentionConfig {
 }
 ```
 
-### Default Configuration File
-
-Create `config/default.json` with complete example configuration matching the implementation plan.
-
 ### Configuration Loading Strategy
 
-1. Load default configuration from `config/default.json`
-2. Check for environment-specific override (e.g., `config/development.json`)
-3. Apply CLI argument overrides
-4. Validate final configuration
-5. Return validated config or detailed error
+1. Load configuration from `config.json` by default, or CLI argument path
+2. Validate configuration
+3. Return validated config or detailed error
 
 ## Implementation Steps
 
@@ -121,21 +188,21 @@ Create `config/default.json` with complete example configuration matching the im
    - `loader.rs` - Loading logic
    - `validation.rs` - Validation rules
 2. Implement configuration structs with serde derives
-3. Create default configuration JSON file
-4. Implement configuration loader with file watching
-5. Add validation rules for all configuration fields
-6. Implement CLI argument parsing for config overrides
-7. Add configuration update API endpoint handlers
-8. Create configuration backup/restore functionality
-9. Write comprehensive unit tests
+3. Implement configuration loader. File watching is
+   not necessary, the user should restart the application after manual config changes.
+4. Add validation rules for all configuration fields
+5. Implement CLI argument parsing for config path and ServerConfig overrides
+6. Add configuration update API endpoint handlers
+7. Create configuration backup/restore functionality
+8. Write comprehensive unit tests
 
 ## Validation Rules
 
 - **Ports**: 1024-65535 range
 - **I2C addresses**: Valid hex format (0x00-0xFF)
 - **PWM pins**: Valid GPIO pin numbers for Raspberry Pi
-- **Poll intervals**: 100ms minimum, 60000ms maximum
-- **Formulas**: Basic syntax validation (defer full validation to formula engine)
+- **Poll intervals**: 250ms minimum, 60000ms maximum
+- **Formulas**: (defer full validation to formula engine)
 - **Percentage values**: 0.0-1.0 range
 - **Memory limits**: Reasonable bounds (10MB-4GB)
 
