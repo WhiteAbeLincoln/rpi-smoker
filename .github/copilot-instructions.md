@@ -22,3 +22,4 @@ Here are the guidelines for working on these tasks:
 - After testing, you must submit/report your changes to me for review.
 - When I accept your changes, mark the task as complete. This is done by
   adding a checkmark to the correct bullet point in the Implementation-Plan.md file.
+  I must give explict approval before you can mark the task as complete.

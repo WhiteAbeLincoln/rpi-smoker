@@ -1,6 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod error;
+pub mod state;
 
 pub use error::{AppError, AppResult};
 
@@ -8,11 +9,11 @@ pub use error::{AppError, AppResult};
 pub mod prelude {
     pub use crate::{AppError, AppResult};
     pub use axum::{
+        Router,
         extract::{Path, Query, State},
         http::StatusCode,
         response::{IntoResponse, Json, Response},
         routing::{delete, get, post, put},
-        Router,
     };
     pub use serde::{Deserialize, Serialize};
     pub use thiserror::Error;

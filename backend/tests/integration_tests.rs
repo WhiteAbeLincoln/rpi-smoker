@@ -1,14 +1,14 @@
 #[tokio::test]
 async fn test_basic_functionality() {
     // Basic test to ensure the crate compiles and basic functionality works
-    let config = rpi_smoker_backend::config::AppConfig::default();
+    let config = rpi_smoker::config::AppConfig::default();
     assert_eq!(config.server.port, 3000);
     assert_eq!(config.server.host, "0.0.0.0");
 }
 
 #[tokio::test]
 async fn test_error_handling() {
-    use rpi_smoker_backend::AppError;
+    use rpi_smoker::AppError;
 
     let error = AppError::BadRequest("Test error".to_string());
     assert!(error.to_string().contains("Bad request"));
@@ -16,7 +16,7 @@ async fn test_error_handling() {
 
 #[tokio::test]
 async fn test_error_convenience_constructors() {
-    use rpi_smoker_backend::AppError;
+    use rpi_smoker::AppError;
 
     // Test convenience constructors
     let bad_request = AppError::bad_request("Invalid input");
@@ -50,7 +50,7 @@ async fn test_error_convenience_constructors() {
 
 #[tokio::test]
 async fn test_error_from_implementations() {
-    use rpi_smoker_backend::AppError;
+    use rpi_smoker::AppError;
     use std::io;
 
     // Test automatic conversion from std::io::Error

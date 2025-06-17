@@ -1,44 +1,39 @@
 use clap::Parser;
-use rpi_smoker_backend::{
-    api::create_router,
-    config::{AppConfig, HardwareConfig, ServerConfig},
-};
+use rpi_smoker::{api::create_router, config::CliOverrides};
+use rpi_smoker::{config::AppConfig, state::AppState};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use tokio::signal;
 use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Port to bind the server to
-    #[arg(short, long, default_value = "3000")]
-    port: u16,
+#[command(author, version, about = "Raspberry Pi Smoker Controller", long_about = None)]
+pub struct Cli {
+    #[arg(short, long, default_value = "config.json")]
+    pub config: PathBuf,
 
     /// Host to bind the server to
-    #[arg(long, default_value = "0.0.0.0")]
-    host: String,
+    #[arg(long)]
+    pub host: Option<String>,
+
+    #[arg(long)]
+    pub port: Option<u16>,
 
     /// Request timeout in seconds
-    #[arg(long, default_value = "30")]
-    timeout: u64,
-
-    /// Enable hardware features (GPIO, sensors)
     #[arg(long)]
-    enable_hardware: bool,
+    pub timeout: Option<u64>,
+
+    /// Disable hardware features and run in mock mode
+    #[arg(long)]
+    pub mock_mode: Option<bool>,
 }
 
-fn create_app_config(args: &Args) -> AppConfig {
-    AppConfig {
-        server: ServerConfig {
-            port: args.port,
-            host: args.host.clone(),
-            request_timeout_seconds: args.timeout,
-            ..Default::default()
-        },
-        hardware: HardwareConfig {
-            enable_gpio: args.enable_hardware,
-            ..Default::default()
-        },
+fn create_cli_overrides(args: &Cli) -> CliOverrides {
+    CliOverrides {
+        port: args.port,
+        host: args.host.clone(),
+        timeout: args.timeout,
+        mock_mode: args.mock_mode,
     }
 }
 
@@ -52,11 +47,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let args = Args::parse();
-    let config = create_app_config(&args);
+    let args = Cli::parse();
+
+    // Load configuration
+    let cli_overrides = create_cli_overrides(&args);
+    let config = AppConfig::load(&args.config, Some(&cli_overrides))
+        .map_err(|e| {
+            eprintln!("Failed to load configuration: {e}");
+            std::process::exit(1);
+        })
+        .unwrap();
+
+    info!("Configuration loaded from: {}", args.config.display());
 
     // Check if we're on a Raspberry Pi or hardware features are enabled
-    if config.hardware.enable_gpio {
+    if !config.hardware.mock_mode {
         #[cfg(all(feature = "rpi-hardware", target_os = "linux"))]
         {
             info!("Hardware features enabled");
@@ -70,23 +75,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             warn!("To enable hardware features: use --features rpi-hardware on Linux");
         }
     } else {
-        info!("Running in development mode without hardware features");
+        info!("Running in mock mode without hardware features");
     }
 
-    let app = create_router(&config);
+    let port = config.server.port;
+    let host: &str = &config.server.host;
+    let timeout = config.server.request_timeout_seconds;
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!(
-        "Starting server on {}:{}",
-        config.server.host, config.server.port
-    );
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    info!("Starting server on {}:{}", host, port);
     info!(
         "Health check available at http://{}:{}/api/health",
-        config.server.host, config.server.port
+        host, port
     );
     info!("API routes available under /api/*");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    let shared_state = AppState::new(config);
+    let app = create_router(timeout, &shared_state);
+    // TODO: spawn thread for sensors
 
     // Run server with graceful shutdown
     axum::serve(listener, app)

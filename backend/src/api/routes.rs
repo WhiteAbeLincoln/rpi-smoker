@@ -9,23 +9,27 @@ use tower_http::{
     compression::CompressionLayer, cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer,
 };
 
+use crate::state::AppState;
+
 use super::handlers::*;
 use super::middleware::*;
-use crate::config::AppConfig;
 
 /// Create the main application router with all routes and middleware
-pub fn create_router(config: &AppConfig) -> Router {
+pub fn create_router(req_timeout: u64, state: &AppState) -> Router {
     // API routes
     let api_routes = Router::new()
         .route("/health", get(health_check))
         .route("/config", get(get_config))
         .route("/config", put(update_config))
+        .route("/config/backups", get(list_config_backups))
+        .route("/config/backups/{filename}", post(restore_config_backup))
         .route("/sensors", get(get_sensors))
         .route("/fans", get(get_fans))
         .route("/data/clear", post(clear_data))
         .route("/data/stats", get(get_stats))
         .route("/alarms", get(get_alarms))
-        .route("/alarms", put(update_alarms));
+        .route("/alarms", put(update_alarms))
+        .with_state(state.clone()); // TODO: is the clone correct? The state should be shared with the sensor thread
 
     // Nest API routes under /api prefix first, then add fallback
     let app = Router::new()
@@ -39,9 +43,7 @@ pub fn create_router(config: &AppConfig) -> Router {
             .layer(middleware::from_fn(request_logging))
             .layer(CorsLayer::permissive())
             .layer(CompressionLayer::new())
-            .layer(TimeoutLayer::new(Duration::from_secs(
-                config.server.request_timeout_seconds,
-            )))
+            .layer(TimeoutLayer::new(Duration::from_secs(req_timeout)))
             .layer(middleware::from_fn(error_handler)),
     )
 }

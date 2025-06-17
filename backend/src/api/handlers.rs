@@ -1,6 +1,11 @@
-use axum::{http::StatusCode, response::Json};
+use axum::{extract::Path, extract::State, http::StatusCode, response::Json};
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+
+use crate::{
+    config::{AppConfig, BackupInfo},
+    state::AppState,
+};
 
 /// Health check handler
 pub async fn health_check() -> Json<Value> {
@@ -12,20 +17,66 @@ pub async fn health_check() -> Json<Value> {
 }
 
 /// Get current configuration
-pub async fn get_config() -> Json<Value> {
-    Json(json!({
-        "message": "Configuration endpoint - not implemented yet"
-    }))
+pub async fn get_config(State(state): State<AppState>) -> Json<AppConfig> {
+    let cfg = state.read_config();
+    Json(cfg.clone())
 }
 
 /// Update configuration
-pub async fn update_config() -> (StatusCode, Json<Value>) {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "message": "Update configuration endpoint - not implemented yet"
-        })),
-    )
+pub async fn update_config(
+    State(state): State<AppState>,
+    Json(updates): Json<Value>,
+) -> Result<Json<AppConfig>, (StatusCode, Json<Value>)> {
+    let mut cfg = state.write_config();
+    // TODO: Update should be a JSON Patch operation
+    cfg.update_partial(updates).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Failed to update configuration: {e}") })),
+        )
+    })?;
+
+    Ok(Json(cfg.clone()))
+}
+
+/// List configuration backups
+pub async fn list_config_backups(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<BackupInfo>>, (StatusCode, Json<Value>)> {
+    let cfg = state.read_config();
+    let backups = cfg.list_backups().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to list backups: {e}") })),
+        )
+    })?;
+
+    Ok(Json(backups))
+}
+
+/// Restore configuration from backup
+pub async fn restore_config_backup(
+    State(state): State<AppState>,
+    Path(backup_filename): Path<String>,
+) -> Result<Json<AppConfig>, (StatusCode, Json<Value>)> {
+    let mut cfg = state.write_config();
+    let restored_config = cfg
+        .restore_from_backup(&backup_filename)
+        .map_err(|e| match e {
+            crate::config::ConfigError::FileNotFound { path } => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("Backup file not found: {path:?}") })),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to restore backup: {e}") })),
+            ),
+        })?;
+
+    // Update the shared state with the restored configuration
+    *cfg = restored_config.clone();
+
+    Ok(Json(restored_config))
 }
 
 /// Get current sensor readings
