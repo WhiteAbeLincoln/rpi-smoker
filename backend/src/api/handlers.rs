@@ -28,7 +28,7 @@ pub async fn update_config(
     Json(updates): Json<Value>,
 ) -> Result<Json<AppConfig>, (StatusCode, Json<Value>)> {
     let mut cfg = state.write_config();
-    // TODO: Update should be a JSON Patch operation
+    // Update should be a JSON Patch operation
     cfg.update_partial(updates).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
@@ -60,8 +60,7 @@ pub async fn restore_config_backup(
     Path(backup_filename): Path<String>,
 ) -> Result<Json<AppConfig>, (StatusCode, Json<Value>)> {
     let mut cfg = state.write_config();
-    let restored_config = cfg
-        .restore_from_backup(&backup_filename)
+    cfg.restore_from_backup(&backup_filename)
         .map_err(|e| match e {
             crate::config::ConfigError::FileNotFound { path } => (
                 StatusCode::NOT_FOUND,
@@ -73,10 +72,7 @@ pub async fn restore_config_backup(
             ),
         })?;
 
-    // Update the shared state with the restored configuration
-    *cfg = restored_config.clone();
-
-    Ok(Json(restored_config))
+    Ok(Json(cfg.clone()))
 }
 
 /// Get current sensor readings

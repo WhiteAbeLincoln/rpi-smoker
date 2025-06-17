@@ -2,6 +2,7 @@ use super::error::{ConfigError, ConfigResult};
 use super::models::*;
 use super::validation::ConfigValidator;
 use chrono::{DateTime, Utc};
+use json_patch::Patch;
 use lazy_static::lazy_static;
 use serde::Serialize;
 use serde_json;
@@ -71,10 +72,68 @@ impl AppConfig {
             .map_err(|e| ConfigError::InvalidJson { source: e })
     }
 
+    /// Replace current configuration with another AppConfig
+    /// preserves the loaded_from path on the original config
+    fn replace(&mut self, mut other: AppConfig) -> ConfigResult<()> {
+        other.loaded_from = self.loaded_from.clone();
+        other.populate_names();
+        other.validate()?;
+
+        self.backup_current()?;
+        // replace the current config with the new one
+        *self = other;
+        self.save(None)?;
+
+        Ok(())
+    }
+
     /// Update partial configuration (for API updates)
-    pub fn update_partial(&mut self, _updates: serde_json::Value) -> ConfigResult<()> {
-        // TODO: We need to update using a JSON patch
-        panic!("Partial updates not implemented yet");
+    ///
+    /// Applies JSON Patch operations (RFC 6902) to update the configuration.
+    ///
+    /// # Example JSON Patch Operations
+    ///
+    /// ```json
+    /// [
+    ///   {
+    ///     "op": "replace",
+    ///     "path": "/server/port",
+    ///     "value": 8080
+    ///   },
+    ///   {
+    ///     "op": "add",
+    ///     "path": "/server/cors_origins/-",
+    ///     "value": "https://example.com"
+    ///   },
+    ///   {
+    ///     "op": "remove",
+    ///     "path": "/server/cors_origins/0"
+    ///   }
+    /// ]
+    /// ```
+    ///
+    /// The updated configuration is validated before being applied. If validation
+    /// fails, the original configuration remains unchanged.
+    pub fn update_partial(&mut self, updates: serde_json::Value) -> ConfigResult<()> {
+        // Parse the JSON Patch operations
+        let patch: Patch =
+            serde_json::from_value(updates).map_err(|e| ConfigError::InvalidJson { source: e })?;
+
+        // Convert self to JSON Value for patch operations
+        let mut config_value =
+            serde_json::to_value(&self).map_err(|e| ConfigError::InvalidJson { source: e })?;
+
+        // Apply the patch operations
+        json_patch::patch(&mut config_value, &patch)
+            .map_err(|e| ConfigError::PatchFailed { source: e })?;
+
+        // Convert back to AppConfig and validate
+        let updated_config: AppConfig = serde_json::from_value(config_value)
+            .map_err(|e| ConfigError::InvalidJson { source: e })?;
+
+        self.replace(updated_config)?;
+
+        Ok(())
     }
 
     /// Backup current configuration
@@ -147,24 +206,14 @@ impl AppConfig {
     }
 
     /// Restore configuration from backup
-    pub fn restore_from_backup(&self, backup_filename: &str) -> ConfigResult<AppConfig> {
+    pub fn restore_from_backup(&mut self, backup_filename: &str) -> ConfigResult<()> {
         // load backup
         let backup_path = self.server.config_backup_dir.join(backup_filename);
-        let mut config = AppConfig::load(&backup_path, None)?;
+        let config = AppConfig::load(&backup_path, None)?;
 
-        // backup current before overwriting
-        self.backup_current()?;
+        self.replace(config)?;
 
-        // change the loaded_from path to the current file and save
-        if let Some(ref path) = self.loaded_from {
-            config.loaded_from = Some(path.clone());
-        }
-
-        config.save(None)?;
-
-        // return the restored config. The user will have to replace their reference to the current config
-        // since there's not a great way to modify the existing reference (self)
-        Ok(config)
+        Ok(())
     }
 
     /// Apply CLI overrides to configuration
@@ -289,8 +338,8 @@ mod tests {
         assert_eq!(backups.len(), 1);
 
         // Restore from backup
-        let restored_config = config.restore_from_backup(&backups[0].filename).unwrap();
-        assert_eq!(restored_config.temp_sensors["probe1"].name, "probe1");
+        config.restore_from_backup(&backups[0].filename).unwrap();
+        assert_eq!(config.temp_sensors["probe1"].name, "probe1");
 
         // Check that the restored config was written to the original path
         let restored_config = AppConfig::load(&config_path, None).unwrap();
@@ -318,5 +367,152 @@ mod tests {
         assert_eq!(result.server.host, "127.0.0.1");
         assert_eq!(result.server.request_timeout_seconds, 60);
         assert!(!result.hardware.mock_mode);
+    }
+
+    #[test]
+    fn test_update_partial_json_patch() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        // Create a JSON patch to update the server port
+        let patch = serde_json::json!([
+            {
+                "op": "replace",
+                "path": "/server/port",
+                "value": 9000
+            }
+        ]);
+
+        // Apply the patch
+        config.update_partial(patch).unwrap();
+
+        // Verify the port was updated
+        assert_eq!(config.server.port, 9000);
+
+        // Verify other fields remain unchanged
+        assert_eq!(config.server.host, "0.0.0.0");
+    }
+
+    #[test]
+    fn test_update_partial_add_operation() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        // Create a JSON patch to add a new CORS origin
+        let patch = serde_json::json!([
+            {
+                "op": "add",
+                "path": "/server/cors_origins/-",
+                "value": "https://example.com"
+            }
+        ]);
+
+        // Apply the patch
+        config.update_partial(patch).unwrap();
+
+        // Verify the new origin was added
+        assert!(
+            config
+                .server
+                .cors_origins
+                .contains(&"https://example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_update_partial_remove_operation() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        // Ensure we have multiple CORS origins first
+        config.server.cors_origins = vec!["*".to_string(), "http://localhost:3000".to_string()];
+
+        // Create a JSON patch to remove the first CORS origin
+        let patch = serde_json::json!([
+            {
+                "op": "remove",
+                "path": "/server/cors_origins/0"
+            }
+        ]);
+
+        // Apply the patch
+        config.update_partial(patch).unwrap();
+
+        // Verify the origin was removed
+        assert_eq!(config.server.cors_origins.len(), 1);
+        assert_eq!(config.server.cors_origins[0], "http://localhost:3000");
+    }
+
+    #[test]
+    fn test_update_partial_invalid_patch() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        // Create an invalid JSON patch (missing required field)
+        let invalid_patch = serde_json::json!([
+            {
+                "op": "replace",
+                "path": "/server/port"
+                // missing "value" field
+            }
+        ]);
+
+        // Apply the patch and expect an error
+        let result = config.update_partial(invalid_patch);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_partial_validation_failure() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        // Create a JSON patch that would result in invalid configuration
+        let patch = serde_json::json!([
+            {
+                "op": "replace",
+                "path": "/server/port",
+                "value": 999  // Invalid port (below 1024)
+            }
+        ]);
+
+        // Apply the patch and expect a validation error
+        let result = config.update_partial(patch);
+        assert!(result.is_err());
+
+        // Verify original config is unchanged after validation failure
+        assert_ne!(config.server.port, 999);
+    }
+
+    #[test]
+    fn test_update_partial_preserves_loaded_from() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.json");
+        let mut config = create_test_config(config_path.clone(), temp_dir.path().join("backups"));
+
+        let original_loaded_from = config.loaded_from.clone();
+
+        // Create a simple patch
+        let patch = serde_json::json!([
+            {
+                "op": "replace",
+                "path": "/server/host",
+                "value": "0.0.0.0"
+            }
+        ]);
+
+        // Apply the patch
+        config.update_partial(patch).unwrap();
+
+        // Verify loaded_from is preserved
+        assert_eq!(config.loaded_from, original_loaded_from);
+
+        // Verify the update was applied
+        assert_eq!(config.server.host, "0.0.0.0");
     }
 }

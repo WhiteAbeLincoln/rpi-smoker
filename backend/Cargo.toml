@@ -30,6 +30,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Error handling
 thiserror = "2.0"
 
+# JSON Patch support
+json-patch = "4.0"
+
 # Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

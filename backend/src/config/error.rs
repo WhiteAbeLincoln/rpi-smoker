@@ -13,6 +13,12 @@ pub enum ConfigError {
         source: serde_json::Error,
     },
 
+    #[error("Patch failed: {source}")]
+    PatchFailed {
+        #[from]
+        source: json_patch::PatchError,
+    },
+
     #[error("Validation failed: {field} - {message}")]
     ValidationFailed { field: String, message: String },
 
