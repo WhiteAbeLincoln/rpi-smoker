@@ -23,3 +23,19 @@ Here are the guidelines for working on these tasks:
 - When I accept your changes, mark the task as complete. This is done by
   adding a checkmark to the correct bullet point in the Implementation-Plan.md file.
   I must give explict approval before you can mark the task as complete.
+
+# Rust Development Practices
+
+## After finishing coding a task
+
+- Run `cargo fmt --all` to format the code according to the project's style guidelines.
+- Run `cargo clippy --examples --all-targets --all-features --fix --allow-dirty` after making changes to Rust code to ensure code quality.
+- Run `cargo clippy --examples --all-targets --all-features` to check for any remaining warnings or suggestions and correct them manually.
+- Run `cargo test --all-targets --all-features` to ensure all tests pass.
+
+## General Rust Development Guidelines
+
+- Unless you need to run the backend, you can use `cargo check` to quickly check for errors without building the entire project.
+- When adding a new Rust dependency, use `cargo search` to find the latest version before adding it to your `Cargo.toml` file.
+- When adding a new Rust dependency, make sure to run `cargo update` to update the lock file.
+- Prefer to derive the `Error` trait using `thiserror` for custom error types. This provides a consistent way to handle errors across the codebase.

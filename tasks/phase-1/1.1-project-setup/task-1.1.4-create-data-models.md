@@ -20,6 +20,8 @@ Define core data models for sensor readings, fan states, alarms, and system stat
 
 Create the fundamental data structures that will be used throughout the application for representing sensor data, fan states, alarm events, and system statistics. Include proper validation, serialization, and helper methods for data manipulation.
 
+Note: AlarmEvent has been optimized to avoid duplicate data over the network - the condition and message fields are stored in AlarmConfig and can be retrieved using the alarm_id. This reduces payload size and maintains a single source of truth for alarm configuration.
+
 ## Acceptance Criteria
 
 - [ ] Core data models defined with proper derives (Serialize, Deserialize, Debug, Clone)
@@ -62,8 +64,6 @@ pub struct FanState {
 pub struct AlarmEvent {
     pub alarm_id: String,
     pub triggered: bool,
-    pub condition: String,      // The formula that triggered
-    pub message: String,
     pub timestamp: DateTime<Utc>,
     pub acknowledged: bool,
     pub trigger_count: u32,     // How many times this alarm has fired
@@ -238,12 +238,14 @@ pub enum ValidationError {
 
 - **Sensor IDs**: Non-empty, alphanumeric + underscore only
 - **Fan IDs**: Non-empty, alphanumeric + underscore only
+- **Alarm IDs**: Non-empty, alphanumeric + underscore only
 - **Temperatures**: -100°C to 500°C range
 - **Voltages**: 0V to 5V range (ADS1115 range)
 - **Duty cycles**: 0.0 to 1.0 (0% to 100%)
 - **PWM frequencies**: 1Hz to 100kHz
 - **Timestamps**: Not in the future
-- **Alarm messages**: Non-empty, max 500 characters
+
+Note: Alarm condition and message validation is handled in AlarmConfig, not AlarmEvent. The AlarmEvent model is optimized to avoid data duplication - clients can retrieve condition and message text by correlating the alarm_id with the AlarmConfig data.
 
 ## Memory Considerations
 

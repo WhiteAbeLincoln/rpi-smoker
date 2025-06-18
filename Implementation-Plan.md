@@ -97,10 +97,10 @@ rpi-smoker/
 
 #### 1.1 Project Setup
 
-- [ ] Create Cargo workspace with backend crate
-- [ ] Set up Axum web server with basic routing
+- [x] Create Cargo workspace with backend crate
+- [x] Set up Axum web server with basic routing
 - [x] Implement configuration loading from JSON
-- [ ] Create basic data models and validation
+- [x] Create basic data models and validation
 
 #### 1.2 Hardware Abstraction Layer
 
